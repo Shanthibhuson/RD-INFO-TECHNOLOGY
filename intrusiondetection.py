@@ -1,66 +1,48 @@
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_score
-from tensorflow import keras
-from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Input, Dense
+from sklearn.preprocessing import StandardScaler
+import matplotlib.pyplot as plt
 
-# Load Dataset (Replace with your dataset path)
-df = pd.read_csv("../data/nsl_kdd.csv")
+# Simulated Network Traffic Data with different values
+data = {
+    'src_ip': ['192.168.2.1', '192.168.2.2', '192.168.2.3', '10.1.0.1', '10.1.0.2', '10.1.0.3', '192.168.2.4'],
+    'dst_ip': ['192.168.2.5', '192.168.2.6', '192.168.2.7', '10.1.0.4', '10.1.0.5', '10.1.0.6', '192.168.2.8'],
+    'protocol': [1, 3, 2, 1, 2, 3, 1],  # 1 = TCP, 2 = UDP, 3 = ICMP
+    'bytes_sent': [500, 2500, 750, 9000, 300, 1500, 11000],
+    'bytes_received': [1500, 750, 1500, 800, 1400, 700, 5000],
+    'connection_duration': [50, 110, 25, 200, 55, 80, 320]
+}
 
-# Drop non-numeric columns if any
-df = df.select_dtypes(include=[np.number])
+# Convert data into a DataFrame
+df = pd.DataFrame(data)
 
-# Normalize data
+# Feature selection
+features = df[['protocol', 'bytes_sent', 'bytes_received', 'connection_duration']]
+
+# Standardize the feature values
 scaler = StandardScaler()
-X = scaler.fit_transform(df)
+features_scaled = scaler.fit_transform(features)
 
-# ------------------------- K-Means Clustering -------------------------
-print("Running K-Means Clustering...")
+# Apply K-Means Clustering
 kmeans = KMeans(n_clusters=2, random_state=42)
-labels = kmeans.fit_predict(X)
+kmeans.fit(features_scaled)
 
-# Evaluate Clustering Performance
-silhouette_avg = silhouette_score(X, labels)
-print(f"Silhouette Score: {silhouette_avg:.4f}")
+df['cluster'] = kmeans.predict(features_scaled)
 
-# ------------------------- Autoencoder for Anomaly Detection -------------------------
-print("Training Autoencoder...")
+# Compute distance to centroid
+df['distance_to_centroid'] = np.linalg.norm(features_scaled - kmeans.cluster_centers_[df['cluster']], axis=1)
 
-# Build Autoencoder Model
-input_dim = X.shape[1]
-encoding_dim = 10
+# Set anomaly threshold (top 5% as anomalies)
+threshold = np.percentile(df['distance_to_centroid'], 95)
+df['anomaly'] = df['distance_to_centroid'] > threshold
 
-input_layer = Input(shape=(input_dim,))
-encoded = Dense(encoding_dim, activation="relu")(input_layer)
-decoded = Dense(input_dim, activation="sigmoid")(encoded)
+# Display results
+print(df)
 
-autoencoder = Model(input_layer, decoded)
-autoencoder.compile(optimizer="adam", loss="mse")
-
-# Train Autoencoder
-autoencoder.fit(X, X, epochs=10, batch_size=32, shuffle=True, validation_split=0.1, verbose=1)
-
-# Compute Reconstruction Error
-reconstructed = autoencoder.predict(X)
-mse = np.mean(np.power(X - reconstructed, 2), axis=1)
-
-# Plot Error Distribution
-plt.figure(figsize=(8, 5))
-sns.histplot(mse, bins=50, kde=True)
-plt.title("Reconstruction Error Distribution")
-plt.xlabel("Mean Squared Error")
-plt.ylabel("Frequency")
+# Visualization
+plt.scatter(df['bytes_sent'], df['bytes_received'], c=df['anomaly'], cmap='coolwarm', marker='o')
+plt.title('Network Traffic Anomalies (Red = Anomalies)')
+plt.xlabel('Bytes Sent')
+plt.ylabel('Bytes Received')
 plt.show()
-
-# Set threshold for anomaly detection
-threshold = np.percentile(mse, 95)
-anomalies = mse > threshold
-
-print(f"Detected {np.sum(anomalies)} anomalies out of {len(mse)} samples.")
-
-print("Intrusion Detection Completed!")
